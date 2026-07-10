@@ -41,6 +41,39 @@ translate.service側（Redis + S3）で、hostname + パス + 言語ごとにキ
 
 原文（日本語ページ）がそのまま表示されます。サイトの表示自体が止まることはありません。
 
+== External services ==
+
+This plugin connects to transer.io's translation server (translate.service) to
+translate your page content on the fly. This is a required part of the plugin's
+core functionality (there is no local/offline translation mode).
+
+**What is sent, and when:**
+This plugin only contacts the external service when a visitor's browser has a
+`transer_lang` cookie set to a language other than your configured source
+language (default: `ja`). On such requests, the following data is sent:
+
+* The full HTML content of the page being rendered (so it can be translated
+  and returned with translated content in place).
+* Your site's hostname and the current request path (used as a cache key on
+  the server, so unchanged pages are not re-translated on every request).
+* The list of contracted target languages you configured (used to generate
+  `hreflang`/`canonical` SEO tags in the returned HTML).
+* Your transer.io API key (sent via the `Authorization` header, for
+  authentication and account-based usage tracking).
+
+**Where it is sent:**
+By default, requests are sent to `https://api.transer.io/translate-page`
+(transer.io's translation service). You can point this at a different URL
+in the plugin settings if instructed to do so by transer.io support.
+
+**Service provider:**
+transer.io — [https://transer.io](https://transer.io)
+Terms of Service / Privacy Policy: please refer to the legal pages published
+on https://transer.io (linked from the transer.io account dashboard).
+
+If no non-source-language cookie is present (e.g. a visitor viewing the
+site in its original language), this plugin makes no external requests at all.
+
 == Changelog ==
 
 = 0.1.0 =
