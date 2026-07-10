@@ -22,7 +22,7 @@
  *    タグ・言語ボックス用スクリプトが自動挿入済み）に差し替えて出力する。
  * 4. 通信に失敗した場合は原文をそのまま表示する（翻訳できないより表示優先）。
  *
- * ページ単位のキャッシュ・差分翻訳・多言語SEOタグの生成はすべてサーバー側
+ * ページ単位の翻訳・多言語SEOタグの生成はすべてサーバー側
  * (translate.service)の責任であり、このプラグインは「HTMLを渡して受け取るだけ」の
  * 薄いブリッジに徹する（Pythonクライアントライブラリ「transer」と設計思想は同じ）。
  */
@@ -98,7 +98,7 @@ function transer_translate_render_settings_page() {
     <div class="wrap">
         <h1>Transer Translate 設定</h1>
         <p>サーバーサイドでページを翻訳し、多言語SEOタグ・言語ボックス付きで返す
-           transer.io連携の設定です。実際の翻訳・キャッシュ・差分判定・SEOタグ生成は
+           transer.io連携の設定です。実際の翻訳・SEOタグ生成は
            すべてtranslate.service側で行われます。</p>
         <form method="post" action="options.php">
             <?php settings_fields('transer_translate_group'); ?>
@@ -121,7 +121,7 @@ function transer_translate_render_settings_page() {
                                placeholder="<?php echo esc_attr($default_hostname); ?>">
                         <p class="description">
                             空欄の場合はサイトURLから自動判定します（現在: <code><?php echo esc_html($default_hostname); ?></code>）。
-                            ページキャッシュ・多言語SEOタグのURL生成に使われます。
+                            多言語SEOタグのURL生成に使われます。
                         </p>
                     </td>
                 </tr>

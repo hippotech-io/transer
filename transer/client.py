@@ -9,7 +9,7 @@ transer/client.py
     translator = Translator(
         base_url="https://api.transer.io",
         api_key="発行されたAPIキー",
-        hostname="example.com",       # このサイトのホスト名（v0.2.0からページキャッシュのため必須）
+        hostname="example.com",       # このサイトのホスト名（v0.2.0から必須）
         contract_langs=["en", "zh-TW", "ko"],  # 契約している翻訳先言語（hreflangタグ用、v0.3.0〜）
     )
 
@@ -23,14 +23,12 @@ transer/client.py
     # -> [{"original": "こんにちは", "translated": "Hello"}, ...]
 
 このクラスの中身は、翻訳サーバー(translate.service; /translate, /translate-page)へ
-HTTPリクエストを送るだけの薄い実装。文結合・抽出・翻訳・再構築・ページキャッシュ・
-差分判定といった重い処理は一切ここには含まれない（すべてサーバー側の責任）。
+HTTPリクエストを送るだけの薄い実装。文結合・抽出・翻訳・再構築といった重い処理は
+一切ここには含まれない（すべてサーバー側の責任）。
 
 ── v0.2.0の変更点 ──
 - translate_page() は hostname（Translator構築時）・pathname（呼び出し時）が必須になった。
-  サーバー側で hostname+pathname+言語 をキーにページ単位のキャッシュ・差分翻訳を行うため。
-- ページキャッシュ・差分翻訳はサーバー側（translate.service）で完結するようになったため、
-  利用者側で独自にキャッシュを実装する必要はなくなった（v0.1.x時点の制約を撤廃）。
+  ページの識別（多言語SEOタグの生成、アカウント単位の利用管理）に使われる。
 """
 
 from __future__ import annotations
@@ -57,10 +55,10 @@ class Translator:
             base_url: 翻訳サーバーのベースURL (例: "https://api.transer.io")
                        末尾に "/" が付いていても付いていなくても動作する。
             api_key:   認証用APIキー。translate_page() を呼ぶ場合は必須
-                       （ページキャッシュ・アカウント管理のため）。
+                       （アカウント単位で利用を管理するため）。
                        translate()（低レベルAPI）のみを使う場合は省略可。
             hostname:  このサイトのホスト名（例: "example.com"）。
-                       translate_page() を呼ぶ場合は必須（ページキャッシュのキーに使われる）。
+                       translate_page() を呼ぶ場合は必須（ページの識別に使われる）。
             contract_langs: このアカウントが契約している翻訳先言語コードの一覧
                        （例: ["en", "zh-TW", "ko"]）。省略時は空リストとして扱われ、
                        translate_page() の target_lang だけが hreflang alternate に
@@ -114,8 +112,7 @@ class Translator:
     ) -> list[dict]:
         """
         テキスト配列を渡して翻訳結果配列を受け取る低レベルAPI。
-        ページキャッシュは行われない（hostname/pathnameの概念が無いため、
-        毎回実際に翻訳エンジンへ送信される）。
+        hostname/pathnameの概念が無いため、毎回実際に翻訳エンジンへ送信される。
 
         Args:
             texts: 翻訳したい文字列のリスト。
@@ -147,13 +144,10 @@ class Translator:
     ) -> str:
         """
         HTML全体を渡して翻訳済みHTMLを受け取る高レベルAPI。
-        文結合・抽出・翻訳・再構築・ページキャッシュ・差分判定はすべて
-        サーバー側(/translate-page)が行う。
+        文結合・抽出・翻訳・再構築はすべてサーバー側(/translate-page)が行う。
 
-        hostname（Translator構築時に指定）+ pathname（この呼び出しの引数）+
-        target_lang の組み合わせがページキャッシュのキーになる。同じキーへの
-        2回目以降のリクエストは、内容に変化が無ければサーバー側のキャッシュから
-        即座に返り、変化があった分だけ再翻訳される。
+        hostname（Translator構築時に指定）+ pathname（この呼び出しの引数）は、
+        ページの識別（多言語SEOタグの生成、アカウント単位の利用管理）に使われる。
 
         ── 言語ボックス・多言語SEOタグ（自動挿入） ──
         サーバー側は翻訳済み本文に加えて、<head>の末尾に以下を自動挿入して返す
@@ -174,13 +168,13 @@ class Translator:
         if not self.api_key:
             raise TranslerError(
                 "translate_page() には api_key が必須です"
-                "（ページキャッシュ・アカウント管理をAPIキー単位で行うため）。"
+                "（アカウント単位で利用を管理するため）。"
                 " Translator(api_key=...) を指定してください。"
             )
         if not self.hostname:
             raise TranslerError(
                 "translate_page() には Translator(hostname=...) の指定が必須です"
-                "（hostname+pathname+言語 でページキャッシュのキーを作るため）。"
+                "（ページの識別に使われるため）。"
             )
 
         client = self._get_client()
