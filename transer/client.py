@@ -10,6 +10,7 @@ transer/client.py
         base_url="https://api.transer.io",
         api_key="発行されたAPIキー",
         hostname="example.com",       # このサイトのホスト名（v0.2.0からページキャッシュのため必須）
+        contract_langs=["en", "zh-TW", "ko"],  # 契約している翻訳先言語（hreflangタグ用、v0.3.0〜）
     )
 
     # 高レベルAPI: HTML全体を渡して翻訳済みHTMLを受け取る
@@ -47,6 +48,7 @@ class Translator:
         base_url: str,
         api_key: str | None = None,
         hostname: str | None = None,
+        contract_langs: list[str] | None = None,
         origin: str | None = None,
         timeout: float = 30.0,
     ):
@@ -59,6 +61,10 @@ class Translator:
                        translate()（低レベルAPI）のみを使う場合は省略可。
             hostname:  このサイトのホスト名（例: "example.com"）。
                        translate_page() を呼ぶ場合は必須（ページキャッシュのキーに使われる）。
+            contract_langs: このアカウントが契約している翻訳先言語コードの一覧
+                       （例: ["en", "zh-TW", "ko"]）。省略時は空リストとして扱われ、
+                       translate_page() の target_lang だけが hreflang alternate に
+                       出力される（詳細は README の「言語ボックス・多言語SEOタグ」参照）。
             origin:    Originヘッダーとして送る値。通常は指定不要
                        （translate.service の /translate-page・/translate は
                        Originヘッダーを見ないため）。
@@ -67,6 +73,7 @@ class Translator:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.hostname = hostname
+        self.contract_langs = contract_langs or []
         self.origin = origin
         self.timeout = timeout
         self._client: httpx.AsyncClient | None = None
@@ -148,6 +155,14 @@ class Translator:
         2回目以降のリクエストは、内容に変化が無ければサーバー側のキャッシュから
         即座に返り、変化があった分だけ再翻訳される。
 
+        ── 言語ボックス・多言語SEOタグ（自動挿入） ──
+        サーバー側は翻訳済み本文に加えて、<head>の末尾に以下を自動挿入して返す
+        （詳細はREADMEの「言語ボックス・多言語SEOタグについて」を参照）。
+          - canonical タグ（配信中の言語のURLを指す）
+          - hreflang alternate タグ（原文言語 + contract_langs で指定した契約言語ぶん）
+          - 言語ボックス用スクリプト（ページ編集ツール付きの言語切り替えUIを描画する）
+        これはModule/Pluginの中核機能であり、利用者側で個別に実装する必要はない。
+
         通信に失敗した場合は元のHTMLをそのまま返す
         (翻訳できないより、原文表示の方が実運用上望ましいため)。
 
@@ -178,6 +193,7 @@ class Translator:
                     "target": target_lang,
                     "hostname": self.hostname,
                     "pathname": pathname,
+                    "contract_langs": self.contract_langs,
                 },
                 headers=self._headers(),
             )
