@@ -1,260 +1,116 @@
-# transer
+# transer-translate（WordPressプラグイン）
 
-Nginx/Apache2配下のアプリケーションから、日本語ページを多言語に翻訳するための
-クライアントライブラリです。実際の翻訳処理（文脈解析・翻訳・HTML再構築）は
-すべてサーバー側(translate.service)で行われ、利用者はHTMLを渡して
-翻訳済みHTMLを受け取るだけです。
-
-> **WordPressをお使いの場合**: このリポジトリには、自分でコードを書かずに
-> 導入できる **WordPressプラグイン** も同梱されています（`wordpress-plugin/`
-> ディレクトリ）。インストール手順・仕組みは
-> [wordpress-plugin/README.md](./wordpress-plugin/README.md) を参照してください。
-> 以下のPython向け説明は、自前のアプリ・翻訳プロキシに組み込みたい場合の内容です。
+`transer` Pythonクライアントライブラリと同じ `translate.service` API
+(`/translate-page`) を利用する、WordPress向けの薄いブリッジプラグインです。
+実際の翻訳・多言語SEOタグ(canonical/hreflang)の生成はすべてサーバー側
+(translate.service)で行われ、このプラグインは「WordPressが生成した
+HTMLを渡して、翻訳済みHTMLを受け取って差し替えるだけ」の役割に徹します。
 
 ## v0.3.1での変更点
 
-- **WordPressプラグイン（`transer-translate`）を追加**（`wordpress-plugin/`）。
-  Pythonコードを書かずに、管理画面の設定だけで同じ `translate.service` API
-  (`/translate-page`) を利用できる。詳細は
-  [wordpress-plugin/README.md](./wordpress-plugin/README.md) を参照。
-  ※ Pythonパッケージ(`transer`)自体のコード変更はありません。
-
-## v0.3.0での変更点
-
-- `Translator(contract_langs=[...])` を追加。契約している翻訳先言語コードの一覧を
-  渡せるようになった（`hreflang` alternate タグを何本出すかに使われる）。
-- サーバー側で自動挿入される「言語ボックス・多言語SEOタグ」についてREADMEに説明を追加
-  （コードの変更ではなく、既存動作の言語化。詳細は下記セクション参照）。
-
-## 言語ボックス・多言語SEOタグについて（Module/Pluginの中核機能）
-
-`translate_page()` が返すHTMLの `<head>` には、以下が**サーバー側で自動的に**
-挿入されます。利用者側で個別に実装する必要はありません。
-
-```html
-<link rel="canonical" href="https://example.com/en/"/>
-<link rel="alternate" hreflang="x-default" href="https://example.com/"/>
-<link rel="alternate" hreflang="ja" href="https://example.com/"/>
-<link rel="alternate" hreflang="en" href="https://example.com/en/"/>
-<link rel="alternate" hreflang="zh-TW" href="https://example.com/zh-TW/"/>
-<script src="https://api.transer.io/js/trsv2.js?lang=ja"></script>
-```
-
-### canonical / hreflang alternate タグ
-
-- **原文言語（source_lang、通常は`ja`）はURLにプレフィックスが付きません。**
-  `contract_langs` に指定したそれ以外の言語は `/{lang}/` プレフィックス付きのURLになります
-  （例: 英語なら `https://example.com/en/about`）。これは
-  「言語ごとに別URLを持つ」という、Googleが推奨する多言語サイト構成に対応するためです。
-- **`canonical`** は「今まさに配信している言語」自身のURLを指します。
-  英語版ページを返しているリクエストなら、`canonical` は英語版のURLになります
-  （日本語版を指すわけではありません）。
-- **`hreflang="x-default"`** は、ユーザーの言語設定がどの`hreflang`とも一致しなかった場合に
-  検索エンジンやブラウザが「代表として」使うべきページを示すための、`hreflang`の特別な予約値です。
-  本サービスでは常に**原文言語（`ja`）のURL**を`x-default`として指定します。
-  つまり「どの言語にも該当しない場合は日本語版を代表とする」という意味になります。
-  `hreflang="ja"`（明示的な日本語向けタグ）とURLは同じになりますが、両方とも出力されます
-  （`x-default`は「言語不問のフォールバック先」、`hreflang="ja"`は「日本語ユーザー向け」という
-  役割が異なるため、検索エンジン向けに両方明示するのが一般的な作法です）。
-- 出力される`hreflang` alternate の本数は、`Translator(contract_langs=[...])` で
-  指定した言語の数（+ 原文言語 + x-default）になります。契約言語を増減すれば、
-  次回以降のリクエストから自動的にタグの本数も追従します。
-
-### 言語ボックス用スクリプト（trsv2.js）
-
-`<head>`の一番下に、ページ編集ツール付きの言語切り替えUI（言語ボックス）を描画する
-スクリプトが自動挿入されます。`lang=`パラメータは常に原文言語（`ja`）固定です。
-このスクリプト自体の詳細な機能（辞書登録・直接編集・画像置換・翻訳禁止など）は
-別途ドキュメント化予定です。
-
-## v0.2.0での変更点（v0.1.xからの移行）
-
-- `translate_page()` は **`hostname`（`Translator`構築時）・`pathname`（呼び出し時）が必須** になりました。
-  ページの識別（多言語SEOタグの生成、アカウント単位の利用管理）に使われます。
-- `translate_page()` の呼び出しには **APIキーが必須** になりました
-  （アカウント単位で利用を管理するため）。
+- **原文（日本語）ページに、常設の言語切り替えボックスを自動表示するようになりました。**
+  Pythonクライアントの場合は利用者自身がテンプレートに1行scriptタグを
+  追加する必要がありますが、**WordPressの場合はプラグインが`wp_head`で
+  自動的に埋め込むため、追加の作業は一切不要です。**
+- **プラグインを完全に削除（アンインストール）した際、保存済み設定
+  （APIキー・契約言語など）も一緒に削除されるようになりました。**
+  「無効化」だけでは、これまで通り設定は残ります。
 
 ## インストール
 
-```bash
-pip install /path/to/transer   # ローカルパッケージから
-# もしくは
-pip install "git+https://github.com/hippotech-io/transer.git@v0.3.1"
-```
+### 動作環境
 
-## 使い方
+- WordPress **5.8以上**（6.6まで動作確認済み）
+- PHP **7.4以上**
 
-```python
-from transer import Translator
+レンタルサーバー等、WordPressが動いている環境であれば、通常はこの要件を
+既に満たしています。心配な場合はWordPress管理画面の「ツール」→
+「サイトヘルス」でPHPバージョンを確認できます。
 
-translator = Translator(
-    base_url="https://api.transer.io",   # 翻訳サーバー(translate.service)のURL
-    api_key="発行されたAPIキー",           # translate_page() を使う場合は必須
-    hostname="example.com",              # このサイトのホスト名（ページ識別に使われる）
-    contract_langs=["en", "zh-TW", "ko"],  # 契約している翻訳先言語（hreflangタグの本数に使われる）
-)
+### 手順
 
-# ページ全体を翻訳する（最も一般的な使い方）
-translated_html = await translator.translate_page(
-    html=original_html,
-    pathname="/about",     # このページのパス（ページ識別に使われる）
-    source_lang="ja",
-    target_lang="en",
-)
+1. `wordpress-plugin/transer-translate/` フォルダをそのまま
+   `wp-content/plugins/transer-translate/` に配置します
+   （`transer-translate.php` と `readme.txt` が直下に来るようにしてください）。
+2. WordPress管理画面 → 「プラグイン」→ 「Transer Translate」を**有効化**します。
+3. 「設定」→「Transer Translate」を開き、以下を設定します。
 
-# テキストの配列だけを翻訳したい場合（hostname不要）
-result = await translator.translate(["こんにちは", "元気ですか"])
-# -> [{"original": "こんにちは", "translated": "Hello"}, ...]
-```
+   | 設定項目 | 内容 |
+   |---|---|
+   | APIキー | transer.io管理画面で発行したAPIキー |
+   | サイトのホスト名 | 空欄なら自動判定（サイトURLから取得）。**transer.io側の「ドメイン管理」で登録したホスト名と完全に一致させること**（www有無等も含む） |
+   | 原文言語 | 通常は `ja`。この言語が指定された場合は翻訳せず原文を表示する |
+   | 契約言語一覧 | 契約している翻訳先言語コードをカンマ区切りで指定（例: `en,zh-TW,ko`）。**transer.io側の「ドメイン管理」の契約言語と一致させること**。hreflangタグの本数・言語ボックスの選択肢に反映される |
+   | translate.serviceのURL | 通常は変更不要（既定: `https://api.transer.io`） |
 
-## サイト全体に組み込む（推奨構成）
+4. 保存すれば設定完了です。プラグイン自体の追加設定は不要です。
 
-`transer`はHTMLを渡すと翻訳済みHTMLを返すだけのクライアントです。
-「ブラウザからのリクエストを受けて、元のページを取得し、`transer`で翻訳して返す」
-という橋渡し役（以下では"翻訳プロキシ"と呼びます）は、**利用者側のアプリとして
-別途実装していただく必要があります**。以下は最小構成の例です。
+> ⚠️ **「契約言語一覧」は、transer.io側で言語を追加・削除しても自動更新されません。**
+> ダッシュボード側の登録内容を変更した際は、忘れずにこちらの設定も
+> 書き換えてください。一致していないと、契約している言語なのに言語ボックスの
+> 選択肢に出てこない、または契約していない言語をリクエストして403エラーに
+> なる、といった不具合の原因になります。
 
-```
-                          ┌─ lang=ja(またはCookie無し) ──→ 既存サイト（そのまま）
-[ブラウザ] → [Nginx] ──┤
-                          └─ lang=en等 ──────────────→ 翻訳プロキシ（下記実装）
-                                                          │
-                                                          ├─→ 既存サイトから元ページ取得
-                                                          └─→ transer.Translator で翻訳して返す
-```
+## 仕組み
 
-日本語ユーザーは翻訳プロキシを経由せず既存サイトへ直接届くため、
-翻訳機能を追加してもパフォーマンスへの影響はありません。
+### 原文ページ（日本語）
 
-### 1. 言語ボックス（フロントエンド）
+`wp_head`フックで、常設の言語切り替えボックス用スクリプト（`langbox.js`）を
+自動的に埋め込みます。APIキー・契約言語が設定されていない場合は埋め込まれません。
 
-言語選択時にCookieをセットしてリロードします。
+### 翻訳対象ページ
 
-```javascript
-document.getElementById('lang-select').addEventListener('change', (e) => {
-  document.cookie = `lang=${e.target.value}; path=/; max-age=31536000`;
-  location.reload();
-});
-```
+1. 訪問者のブラウザに `transer_lang` というCookieがあるかを見ます。
+   これは、言語ボックス（`langbox.js`）が言語切り替え時にセットするCookieです。
+2. Cookie値が原文言語(`ja`)、または未設定であれば、プラグインは何もせず
+   通常通りWordPressのページがそのまま表示されます（上記「原文ページ」の
+   自動埋め込みだけが行われます）。
+3. それ以外の言語が指定されている場合、`template_redirect` フックの早い段階で
+   出力バッファリングを開始し、WordPressが最終的に生成したHTML全体を受け取ります。
+4. そのHTMLを、`hostname`（設定値 or サイトURLから自動判定）・`pathname`
+   （現在のリクエストパス、クエリ文字列は除く）・`contract_langs`（契約言語一覧）
+   とともに `translate.service` の `/translate-page` へ送信します。
+   **契約していない言語をリクエストした場合、`translate.service`側で403エラーになります。**
+5. 返ってきた翻訳済みHTML（`canonical`/`hreflang`タグ・言語ボックス用スクリプトが
+   自動挿入済み）に差し替えて出力します。
+6. 通信に失敗した場合・異常なレスポンスの場合は、**元のHTMLをそのまま表示**します
+   （翻訳できないより、サイトが表示される方が実運用上望ましいという判断です）。
 
-### 2. 翻訳プロキシ（FastAPI実装例）
+管理画面・REST APIリクエスト・AJAX・cron・GET以外のリクエスト・HTML以外の応答
+（JSON等）には一切干渉しません。
 
-既存サイトから元のHTMLを取得し、`transer`で翻訳してそのまま返すだけの
-小さなアプリです。ポート番号は既存サイト・`translate.service`と重ならない
-ものを割り当ててください（例では8002）。
+## アンインストールについて
 
-```python
-# proxy.py
-import httpx
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from transer import Translator
+- **「無効化」**: 設定（APIキー・契約言語など）は保持されます。再度有効化すれば
+  そのまま使えます。
+- **「削除」**（無効化した後に表示される「削除」リンクから実行）: プラグイン
+  ファイルと共に、保存済みの設定も完全に削除されます。
 
-app = FastAPI()
+## トラブルシューティング
 
-translator = Translator(
-    base_url="https://api.transer.io",
-    api_key="発行されたAPIキー",
-    hostname="example.com",   # このサイトのホスト名を固定で指定
-    contract_langs=["en", "zh-TW", "ko"],  # 契約している翻訳先言語
-)
+| 症状 | 原因・対処 |
+|---|---|
+| 言語ボックスが原文ページに出ない | 設定画面でAPIキー・契約言語一覧の両方が入力されているか確認 |
+| 言語を切り替えても翻訳されない | 「サイトのホスト名」「契約言語一覧」が、transer.io側の「ドメイン管理」の登録内容と完全に一致しているか確認 |
+| 契約しているはずの言語が言語ボックスの選択肢に出ない | プラグイン設定の「契約言語一覧」が古いまま（ダッシュボード側で言語を追加しても自動反映されない）。設定画面で手動更新する |
+| サイトが真っ白・エラーになる | 想定外の挙動。通信失敗時は必ず原文のHTMLがそのまま表示される設計。`WP_DEBUG_LOG`を有効にしてエラーログを確認のうえお問い合わせください |
+| 特定のページだけ翻訳されない | プラグインはGETリクエスト・HTML応答にのみ動作します。管理画面・REST API・AJAX・cronリクエストは対象外です |
 
-ORIGIN_BASE_URL = "http://127.0.0.1:8080"  # 既存サイト(Apache2/PHP-FPM等)
+## 動作確認について
 
+このプラグインは、PHP単体でのロジック検証（WordPress関数をスタブしたテスト）
+に加え、**実機（Ubuntu 24.04 + Nginx + PHP-FPM + MariaDB）での動作確認も
+実施済みです**（原文ページ・翻訳ページ双方での言語ボックス表示、言語切り替え、
+契約外言語への403拒否まで確認済み）。
 
-@app.api_route("/{path:path}", methods=["GET"])
-async def proxy(request: Request, path: str):
-    lang = request.cookies.get("lang", "ja")
+## Pythonクライアントライブラリ（`transer`）との関係
 
-    async with httpx.AsyncClient() as client:
-        origin_resp = await client.get(
-            f"{ORIGIN_BASE_URL}/{path}",
-            params=request.query_params,
-        )
+同じ `translate.service` API を使う、言語違いの2つのクライアントです。
 
-    html = origin_resp.text
-    if lang != "ja":
-        # pathname はページ識別に使われるため、クエリを含まない
-        # リクエストパスをそのまま渡す（"/" 始まりを想定）。
-        pathname = "/" + path
-        html = await translator.translate_page(
-            html, pathname=pathname, source_lang="ja", target_lang=lang,
-        )
-
-    return HTMLResponse(html, status_code=origin_resp.status_code)
-```
-
-`systemd`等で常駐化してください（`translate.service`と同様の要領です）。
-
-```ini
-# /etc/systemd/system/translate-proxy.service
-[Unit]
-Description=Translate Proxy (transer)
-After=network.target
-
-[Service]
-Type=simple
-User=www-data
-Group=www-data
-WorkingDirectory=/var/www/proxy
-Environment="PATH=/var/www/proxy/venv/bin"
-ExecStart=/var/www/proxy/venv/bin/uvicorn proxy:app --host 127.0.0.1 --port 8002
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### 3. Nginxの振り分け設定
-
-```nginx
-# Cookieの値によって振り分け先を決定する。
-# 値が "ja" または未設定なら既存サイトへ、それ以外は翻訳プロキシへ。
-map $cookie_lang $backend {
-    default   translate_backend;
-    ""        origin_backend;
-    "ja"      origin_backend;
-}
-
-upstream origin_backend {
-    server 127.0.0.1:8080;   # 既存サイト
-}
-
-upstream translate_backend {
-    server 127.0.0.1:8002;   # 翻訳プロキシ(上記proxy.py)
-}
-
-server {
-    listen 80;
-    server_name example.com;
-
-    location / {
-        proxy_pass http://$backend;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-### 4. Apache2の場合（mod_rewrite + mod_proxy版）
-
-```apache
-RewriteEngine On
-RewriteCond %{HTTP_COOKIE} !lang=ja
-RewriteCond %{HTTP_COOKIE} lang=([a-zA-Z-]+)
-RewriteRule ^(.*)$ http://127.0.0.1:8002$1 [P,L]
-
-ProxyPassReverse / http://127.0.0.1:8002/
-```
-
-## 注意事項
-
-- 通信に失敗した場合、`translate_page()` は例外を投げずに**元のHTMLをそのまま返します**
-  （翻訳できないより、原文が表示される方が実運用上望ましいという判断です）。
-- `api_key` または `hostname` が未設定のまま `translate_page()` を呼んだ場合は
-  `TranslerError` が送出されます（これは通信失敗ではなく設定不備のため、
-  上記のフォールバックとは区別されます＝原文にはフォールバックしません）。
-- `translate()`（低レベルAPI）は通信失敗時に例外(`TranslerError`)を送出します。
-- 課金は翻訳文字数ではなく、契約言語数に基づく方式に移行予定です（詳細は別途案内）。
+| | Pythonモジュール (`transer`) | WordPressプラグイン (`transer-translate`) |
+|---|---|---|
+| 対象 | 自前のPython/FastAPIアプリ等 | WordPressサイト |
+| 統合方法 | `Translator.translate_page()` を自分のプロキシコードから呼ぶ | プラグインを有効化するだけ（コード記述不要） |
+| hostname/pathname/contract_langs | 呼び出し時に指定 | 管理画面で設定 or 自動判定 |
+| 原文ページの言語ボックス設置 | テンプレートに1行scriptタグを手動追加 | プラグインが`wp_head`で自動埋め込み（作業不要） |
+| 多言語SEOタグ | サーバー側で共通 | サーバー側で共通 |
