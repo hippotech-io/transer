@@ -204,25 +204,35 @@ result = await translator.translate(["こんにちは", "元気ですか"])
 
 ```python
 # proxy.py
+# ※ サポートページ（module-support-python.html）掲載のコード例そのまま。
+#    API_KEY・HOSTNAME は、実際にダッシュボードで発行/登録した値に
+#    書き換えてから起動してください。
 import sys
+
 import httpx
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from transer import Translator
 
 app = FastAPI()
 
-API_KEY = "発行されたAPIキー"
-HOSTNAME = "example.com"   # このサイトのホスト名を固定で指定
+# ▼▼▼ ここを実際にダッシュボードで発行/登録した値に書き換える ▼▼▼
+API_KEY = "CHANGE_ME_TO_REAL_API_KEY"
+HOSTNAME = "CHANGE_ME_TO_REGISTERED_HOSTNAME"
+# ▲▲▲ ここまで ▲▲▲
 BASE_URL = "https://api.transer.io"
 
-# 書き換え忘れをその場で検知する（気づかずに起動してしまう事故を防ぐ）
-if API_KEY == "発行されたAPIキー" or HOSTNAME == "example.com":
-    print("[起動エラー] API_KEY・HOSTNAME がまだ実際の値に書き換えられていません。")
+# 書き換え忘れをその場で検知する（気づかずに起動してしまう事故を防ぐ）。
+if "CHANGE_ME" in API_KEY or "CHANGE_ME" in HOSTNAME:
+    print("=" * 60, flush=True)
+    print("[起動エラー] API_KEY・HOSTNAME がまだ書き換えられていません。", flush=True)
+    print("  このファイル上部の値を、実際にダッシュボードで発行/登録", flush=True)
+    print("  した値に書き換えてから、もう一度起動してください。", flush=True)
+    print("=" * 60, flush=True)
     sys.exit(1)
 
 translator = Translator(base_url=BASE_URL, api_key=API_KEY, hostname=HOSTNAME)
-ORIGIN_BASE_URL = "http://127.0.0.1:8080"  # 既存サイト(Apache2/PHP-FPM等)
+ORIGIN_BASE_URL = "http://127.0.0.1:8080"  # 既存サイト（このスクリプトが用意したダミーサイト）
 
 
 async def fetch_contract_langs() -> list:
@@ -243,22 +253,14 @@ async def fetch_contract_langs() -> list:
             )
         if resp.status_code == 200:
             return resp.json().get("contract_langs", [])
-        print(f"[contract-langs] 取得失敗（status={resp.status_code}）: {resp.text[:200]}")
+        print(f"[contract-langs] 取得失敗（status={resp.status_code}）: {resp.text[:200]}", flush=True)
     except Exception as e:
-        print(f"[contract-langs] 取得失敗（通信エラー）: {e}")
+        print(f"[contract-langs] 取得失敗（通信エラー）: {e}", flush=True)
     return []
 
 
 def build_langbox_snippet(contract_langs: list) -> str:
-    """
-    原文（日本語）ページ用: 言語ボックスのスクリプトタグを組み立てる。
-    【重要】原文ページでも translate_page() を呼びたくなるが、
-    target_lang="ja"（原文言語自体）は契約言語一覧に含まれないため、
-    呼ぶとサーバー側の契約言語チェックで403エラーになる。そのため、
-    原文ページには、このスクリプトタグだけを直接挿入する
-    （WordPressプラグイン版と同じ考え方）。これが無いと、訪問者が
-    最初に開いた日本語ページには言語を切り替える手段が一切無くなる。
-    """
+    """原文（日本語）ページ用: 言語ボックスのスクリプトタグを組み立てる。"""
     langs_attr = ",".join(contract_langs)
     return (
         '<script src="https://api.transer.io/js/langbox.js?lang=ja" '
@@ -266,44 +268,84 @@ def build_langbox_snippet(contract_langs: list) -> str:
     )
 
 
+# 起動時、設定内容をログにはっきり出す（「どのファイルが・どの設定で」
+# 動いているかを journalctl だけで確認できるようにするため）。
+print("=" * 60, flush=True)
+print("[起動設定]", flush=True)
+print(f"  hostname    = {HOSTNAME}", flush=True)
+print(f"  origin_base = {ORIGIN_BASE_URL}", flush=True)
+print("  contract_langs は毎リクエストごとに translate.service へ問い合わせます", flush=True)
+print("=" * 60, flush=True)
+
+
 @app.on_event("startup")
 async def startup_selftest():
-    """起動直後に実際に疎通確認を行い、設定ミスをその場のログで検知する。"""
+    """
+    起動直後、実際に translate.service へ1回だけ疎通確認を行い、
+    成功/失敗をログにはっきり出す。
+    api_key・hostname・契約言語の設定ミスは、ここで即座に判明する。
+    """
     try:
         contract_langs = await fetch_contract_langs()
         if not contract_langs:
-            print("[起動時セルフテスト] ✗ 失敗: 契約言語一覧を取得できませんでした")
-            print("  → api_key・hostname・「ドメイン管理」での登録状況を確認してください")
+            print("[起動時セルフテスト] ✗ 失敗: 契約言語一覧を取得できませんでした", flush=True)
+            print("  → api_key・hostname・「ドメイン管理」での登録状況を確認してください", flush=True)
             return
+
+        test_html = "<html><head></head><body><p>テスト</p></body></html>"
         result = await translator.translate_page(
-            "<html><head></head><body><p>テスト</p></body></html>",
-            pathname="/__selftest", source_lang="ja", target_lang=contract_langs[0],
+            test_html, pathname="/__selftest", target_lang=contract_langs[0]
         )
-        print(f"[起動時セルフテスト] ✓ 成功（contract_langs={contract_langs}）: {result[:80]}")
+        if "Test" in result or len(result) > len(test_html):
+            print(
+                f"[起動時セルフテスト] ✓ 成功: translate.serviceと正常に通信できています"
+                f"（contract_langs={contract_langs}）",
+                flush=True,
+            )
+        else:
+            print(
+                f"[起動時セルフテスト] ⚠ 応答はありましたが、翻訳された形跡がありません: {result[:200]}",
+                flush=True,
+            )
     except Exception as e:
-        print(f"[起動時セルフテスト] ✗ 失敗: {e}")
+        print(f"[起動時セルフテスト] ✗ 失敗: {e}", flush=True)
 
 
 @app.get("/__health")
 async def health():
-    """稼働確認用の軽量エンドポイント（curlで簡単に確認できるようにするため）"""
+    """稼働確認用の軽量エンドポイント（curlですぐ確認できるようにするため）"""
     contract_langs = await fetch_contract_langs()
-    return {"status": "ok", "hostname": HOSTNAME, "contract_langs": contract_langs}
+    return {
+        "status": "ok",
+        "hostname": HOSTNAME,
+        "contract_langs": contract_langs,
+        "origin_base_url": ORIGIN_BASE_URL,
+    }
 
 
 @app.api_route("/{path:path}", methods=["GET"])
 async def proxy(request: Request, path: str):
+    async with httpx.AsyncClient() as client:
+        origin_resp = await client.get(f"{ORIGIN_BASE_URL}/{path}")
+
+    content_type = origin_resp.headers.get("content-type", "")
+
+    # 【重要】画像・CSS・JS・フォント等の静的ファイルは、翻訳処理を通さず
+    # そのままバイト列で返す。ここを素通りさせないと、HTMLと同じように
+    # .text で無理やり文字列化してしまい、バイナリデータが壊れてしまう
+    # （画像が文字化けして表示される、CSSが読み込めない等の不具合が起きる）。
+    if "text/html" not in content_type:
+        return Response(
+            content=origin_resp.content,
+            status_code=origin_resp.status_code,
+            media_type=content_type or None,
+        )
+
     # 【重要】Cookieは使わない。選択した言語を一切覚えず、別のページへ
     # 移動すれば常に原文言語（日本語）からロードする、という仕様のため。
     # URLクエリパラメータ(?hl=en)を見る。Rewrite設定の有無を問わず、
     # どの環境でも確実に動く方式。
     lang = request.query_params.get("hl", "ja")
-
-    async with httpx.AsyncClient() as client:
-        origin_resp = await client.get(
-            f"{ORIGIN_BASE_URL}/{path}",
-            params=request.query_params,
-        )
     html = origin_resp.text
 
     # 毎リクエストごとに、その時点の契約言語一覧を問い合わせて判定する
@@ -313,11 +355,14 @@ async def proxy(request: Request, path: str):
     contract_langs = await fetch_contract_langs()
 
     if lang in contract_langs:
-        html = await translator.translate_page(
-            html, pathname="/" + path, source_lang="ja", target_lang=lang,
-        )
+        html = await translator.translate_page(html, pathname="/"+path, target_lang=lang)
     else:
         # 原文（日本語）ページ、および契約外の値が指定された場合は、常にこちら。
+        # target_lang="ja"（原文言語自体）は契約言語一覧に含まれないため、
+        # translate_page()を呼ぶとサーバー側の契約言語チェックで403エラーになる。
+        # そのため、原文ページには言語ボックスのスクリプトタグだけを直接挿入する
+        # （WordPressプラグイン版と同じ考え方）。これが無いと、訪問者が最初に
+        # 開いた日本語ページには言語を切り替える手段が一切無くなってしまう。
         if "</head>" in html:
             html = html.replace("</head>", build_langbox_snippet(contract_langs) + "</head>", 1)
 
@@ -326,7 +371,6 @@ async def proxy(request: Request, path: str):
     # キャッシュを無効化する。
     return HTMLResponse(
         html,
-        status_code=origin_resp.status_code,
         headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
     )
 ```
@@ -459,6 +503,7 @@ sudo certbot --nginx -d example.com
 
 | 症状 | 原因・対処 |
 |---|---|
+| 画像が文字化けして表示される・CSS/JSが読み込めない | サンプルコードの、`Content-Type`が`text/html`以外なら素通しする分岐（`if "text/html" not in content_type:`）が反映されているか確認してください。これが無いと、画像等の静的ファイルもテキストとして扱われ、バイナリデータが壊れてしまいます |
 | `python3 -m venv`・`pip install`で`Permission denied` | `/var/www/html`等、rootまたはwww-data所有のディレクトリで作業しようとしている。自分のユーザーが所有するディレクトリ（例: `~/proxy-app`）で作業すること |
 | 502 Bad Gateway | 翻訳プロキシ（`proxy-app.service`）が起動していない、またはクラッシュしている。`systemctl status`で確認 |
 | `address already in use`で再起動を繰り返す | 同じポートを、手動実行した古い`uvicorn`プロセス等が既に掴んでいる。`sudo ss -tlnp \| grep <ポート番号>`で該当プロセスを特定し終了させてから、サービスを再起動する |
